@@ -1,21 +1,16 @@
 import Foundation
-import Observation
+import Combine
 
 @MainActor
-@Observable
-final class ProcessMonitor {
-    var appGroups: [AppGroup] = []
-    var lastUpdated: Date = .now
-    var isRunning = false
-    var refreshInterval: TimeInterval = 3.0
-    var statusMessage: String = "Starting…"
+final class ProcessMonitor: ObservableObject {
+    @Published var appGroups: [AppGroup] = []
+    @Published var statusMessage: String = "Starting…"
+    @Published var refreshInterval: TimeInterval = 3.0
 
     private var timer: Timer?
-    private var fetchTask: Task<Void, Never>?
 
     func start() {
-        guard !isRunning else { return }
-        isRunning = true
+        guard timer == nil else { return }
         triggerRefresh()
         scheduleTimer()
     }
@@ -23,98 +18,72 @@ final class ProcessMonitor {
     func stop() {
         timer?.invalidate()
         timer = nil
-        fetchTask?.cancel()
-        fetchTask = nil
-        isRunning = false
     }
 
     func refreshNow() {
-        fetchTask?.cancel()
         triggerRefresh()
     }
 
     func setInterval(_ interval: TimeInterval) {
         refreshInterval = interval
-        if isRunning {
-            timer?.invalidate()
-            scheduleTimer()
-        }
+        timer?.invalidate()
+        if timer != nil { scheduleTimer() }
     }
 
     private func scheduleTimer() {
-        let t = Timer(timeInterval: refreshInterval, repeats: true) { [weak self] _ in
-            // Safe: timer is added to RunLoop.main so always fires on the main thread.
+        timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.triggerRefresh() }
         }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
     }
 
     private func triggerRefresh() {
-        fetchTask?.cancel()
-        // Task inherits @MainActor isolation from the enclosing context.
-        fetchTask = Task {
-            guard !Task.isCancelled else { return }
-            do {
-                let groups = try await fetchGroups()
-                guard !Task.isCancelled else { return }
-                appGroups = groups
-                lastUpdated = .now
-                statusMessage = "\(groups.count) apps"
-            } catch {
-                statusMessage = "Error: \(error.localizedDescription)"
+        Task.detached(priority: .userInitiated) {
+            let output = ProcessMonitor.runPS()
+            let groups = ProcessMonitor.parseAndGroup(output)
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.appGroups = groups
+                self.statusMessage = "\(groups.count) apps"
             }
         }
     }
 
-    // Suspends at the first `await`, freeing the main actor while ps runs.
-    private func fetchGroups() async throws -> [AppGroup] {
-        let processes = try await runPS()
+    // MARK: - Static helpers (no actor isolation, run freely on any thread)
+
+    private nonisolated static func runPS() -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-eo", "pid,pcpu,rss,comm"]
+        let outPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return ""
+        }
+        return String(data: outPipe.fileHandleForReading.readDataToEndOfFile(),
+                      encoding: .utf8) ?? ""
+    }
+
+    private nonisolated static func parseAndGroup(_ output: String) -> [AppGroup] {
         var grouped: [String: [ProcessInfo]] = [:]
-        for proc in processes {
-            grouped[proc.name, default: []].append(proc)
+        for line in output.components(separatedBy: "\n").dropFirst() {
+            let cols = line.split(separator: " ", maxSplits: 3,
+                                  omittingEmptySubsequences: true)
+            guard cols.count >= 4,
+                  let pid = Int(cols[0]),
+                  let cpu = Double(cols[1]),
+                  let rss = Double(cols[2]) else { continue }
+            let commPath = cols[3].trimmingCharacters(in: .whitespaces)
+            let name = String(commPath.split(separator: "/").last ?? Substring(commPath))
+            grouped[name, default: []].append(
+                ProcessInfo(pid: pid, name: name, cpu: cpu, memMB: rss / 1_024)
+            )
         }
         return grouped
             .map { AppGroup(name: $0.key, processes: $0.value) }
             .sorted { $0.totalCPU > $1.totalCPU }
-    }
-
-    // nonisolated: touches no actor state, safe to call from any context.
-    private nonisolated func runPS() async throws -> [ProcessInfo] {
-        let output = try await runCommand("/bin/ps", args: ["-eo", "pid,pcpu,rss,comm"])
-        return output.components(separatedBy: "\n")
-            .dropFirst()
-            .compactMap { line -> ProcessInfo? in
-                let cols = line.split(separator: " ", maxSplits: 3,
-                                      omittingEmptySubsequences: true)
-                guard cols.count >= 4,
-                      let pid = Int(cols[0]),
-                      let cpu = Double(cols[1]),
-                      let rss = Double(cols[2]) else { return nil }
-                let commPath = cols[3].trimmingCharacters(in: .whitespaces)
-                let name = String(commPath.split(separator: "/").last ?? Substring(commPath))
-                return ProcessInfo(pid: pid, name: name, cpu: cpu, memMB: rss / 1_024)
-            }
-    }
-
-    private nonisolated func runCommand(_ path: String, args: [String]) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: path)
-                process.arguments = args
-                let outPipe = Pipe()
-                process.standardOutput = outPipe
-                process.standardError = Pipe()
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-                    continuation.resume(returning: String(data: data, encoding: .utf8) ?? "")
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
     }
 }

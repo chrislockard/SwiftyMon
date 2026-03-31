@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @Environment(ProcessMonitor.self) private var monitor
+    @EnvironmentObject private var monitor: ProcessMonitor
     @State private var sortOrder = [KeyPathComparator(\AppGroup.totalCPU, order: .reverse)]
     @State private var selectedApp: String? = nil
     @State private var searchText = ""
@@ -85,17 +85,14 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
         }
         ToolbarItem(placement: .automatic) {
-            Button(action: { monitor.refreshNow() }) {
+            Button { monitor.refreshNow() } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
             .help("Refresh now (⌘R)")
             .keyboardShortcut("r", modifiers: .command)
         }
         ToolbarItem(placement: .automatic) {
-            Picker("Interval", selection: Binding(
-                get: { monitor.refreshInterval },
-                set: { monitor.setInterval($0) }
-            )) {
+            Picker("Interval", selection: $monitor.refreshInterval) {
                 Text("1s").tag(1.0)
                 Text("2s").tag(2.0)
                 Text("3s").tag(3.0)
@@ -104,6 +101,9 @@ struct ContentView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 200)
+            .onChange(of: monitor.refreshInterval) { _, new in
+                monitor.setInterval(new)
+            }
             .help("Refresh interval")
         }
     }

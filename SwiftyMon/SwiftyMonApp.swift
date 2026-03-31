@@ -2,12 +2,12 @@ import SwiftUI
 
 @main
 struct SwiftyMonApp: App {
-    @State private var monitor = ProcessMonitor()
+    @StateObject private var monitor = ProcessMonitor()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(monitor)
+                .environmentObject(monitor)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
