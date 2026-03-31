@@ -24,8 +24,7 @@ struct ContentView: View {
             if let group = selectedGroup {
                 Divider()
                 ProcessDetailView(group: group)
-                    .frame(height: 220)
-                    .transition(.move(edge: .bottom))
+                    .frame(height: 200)
             }
         }
         .toolbar { toolbarContent }
@@ -53,7 +52,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .width(min: 160, ideal: 230)
+            .width(min: 160, ideal: 260)
 
             TableColumn("CPU", value: \.totalCPU) { group in
                 HStack(spacing: 6) {
@@ -64,30 +63,14 @@ struct ContentView: View {
                             color: cpuColor(group.totalCPU))
                 }
             }
-            .width(min: 90, ideal: 110)
+            .width(min: 90, ideal: 115)
 
             TableColumn("Memory", value: \.totalMemMB) { group in
                 Text(formatMB(group.totalMemMB))
                     .monospacedDigit()
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .width(min: 80, ideal: 100)
-
-            TableColumn("Net In", value: \.totalNetIn) { group in
-                Text(formatBPS(group.totalNetIn))
-                    .monospacedDigit()
-                    .foregroundStyle(group.totalNetIn > 0 ? .primary : .tertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .width(min: 90, ideal: 105)
-
-            TableColumn("Net Out", value: \.totalNetOut) { group in
-                Text(formatBPS(group.totalNetOut))
-                    .monospacedDigit()
-                    .foregroundStyle(group.totalNetOut > 0 ? .primary : .tertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .width(min: 90, ideal: 105)
+            .width(min: 80, ideal: 110)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
     }
@@ -154,7 +137,7 @@ struct ProcessDetailView: View {
                 TableColumn("PID", value: \.pid) { p in
                     Text("\(p.pid)").monospacedDigit().foregroundStyle(.secondary)
                 }
-                .width(55)
+                .width(60)
                 TableColumn("Name", value: \.name) { p in
                     Text(p.name).lineLimit(1)
                 }
@@ -170,21 +153,7 @@ struct ProcessDetailView: View {
                         .monospacedDigit()
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .width(90)
-                TableColumn("Net In", value: \.netInBPS) { p in
-                    Text(formatBPS(p.netInBPS))
-                        .monospacedDigit()
-                        .foregroundStyle(p.netInBPS > 0 ? .primary : .tertiary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                .width(95)
-                TableColumn("Net Out", value: \.netOutBPS) { p in
-                    Text(formatBPS(p.netOutBPS))
-                        .monospacedDigit()
-                        .foregroundStyle(p.netOutBPS > 0 ? .primary : .tertiary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                .width(95)
+                .width(100)
             }
             .tableStyle(.inset(alternatesRowBackgrounds: true))
         }
